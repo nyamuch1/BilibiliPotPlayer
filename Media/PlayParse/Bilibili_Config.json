@@ -4,8 +4,9 @@
 	"maxliveroom": 200,
 	"danmaku": {
 		// 控制是否接收弹幕。按 Alt+H 可显示/隐藏弹幕
-		"enable": true,
-		"server": "https://subtitle.chen310.repl.co",
+		"enable": false,
+		// 填写兼容 /subtitle 接口的弹幕服务地址后再启用
+		"server": "",
 		// 字体
 		"font": "微软雅黑",
 		// 字号
