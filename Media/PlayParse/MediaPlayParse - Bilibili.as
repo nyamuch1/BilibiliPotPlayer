@@ -1638,12 +1638,12 @@ string findLiveStreamUrl(JsonValue playurl, int qn, string protocol, string form
 }
 
 string getLiveStreamUrl(JsonValue playurl, int qn, int cdnIndex) {
-	// Prefer the most widely supported stream, then fall back to HLS and HEVC.
-	string url = findLiveStreamUrl(playurl, qn, "http_stream", "flv", "avc", cdnIndex);
+	// HLS keeps a continuous timeline and avoids duplicated audio after live reconnects in PotPlayer.
+	string url = findLiveStreamUrl(playurl, qn, "http_hls", "ts", "avc", cdnIndex);
 	if (!url.empty()) {
 		return url;
 	}
-	url = findLiveStreamUrl(playurl, qn, "http_hls", "ts", "avc", cdnIndex);
+	url = findLiveStreamUrl(playurl, qn, "http_stream", "flv", "avc", cdnIndex);
 	if (!url.empty()) {
 		return url;
 	}
