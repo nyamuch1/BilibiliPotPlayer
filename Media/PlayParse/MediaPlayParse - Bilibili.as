@@ -595,7 +595,6 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 						}
 						dictionary dic;
 						dic["name"] = "【字幕】" + sub["lan_doc"].asString();
-						// issue #157 里 hellpeak 的做法：语言代码也带上
 						dic["langCode"] = sub["lan"].asString();
 						if (!ConfigData.subtitleUrl.empty()) {
 							// 配置了自己的字幕服务器就还走服务器

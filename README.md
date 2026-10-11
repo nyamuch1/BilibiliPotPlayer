@@ -93,18 +93,16 @@ B 站 App 的「分享」复制出来的 `https://b23.tv/xxxxx` 短链可以直�
 
 ## 字幕与弹幕
 
-- **字幕**：**不需要服务器**。直接用 B 站自己的字幕地址（`//aisubtitle.hdslb.com/...`）。
-  这是 issue [#157](https://github.com/chen310/BilibiliPotPlayer/issues/157) 里作者确认过的 ——
-  直接把 JSON 格式的字幕 url 交给 PotPlayer 即可，新版 PotPlayer 能直接认。
+- **字幕**：不需要服务器，直接用 B 站自己的字幕地址（`//aisubtitle.hdslb.com/...`），
+  把 JSON 格式的 url 交给 PotPlayer 即可，新版 PotPlayer 能直接认。
 
-- **弹幕**：**需要服务器**，在 `Bilibili_Config.json` 里填 `danmaku.server`
-  （可以自己部署 [danmaku-server](https://github.com/chen310/danmaku-server)）。
+- **弹幕**：需要服务器，在 `Bilibili_Config.json` 里填 `danmaku.server`。
   留空则只显示字幕，不影响其它功能。
 
 > 为什么弹幕不能像字幕一样直连？因为 B 站的弹幕 XML
 > （`comment.bilibili.com/<cid>.xml`）返回的是**裸 deflate**（不符合 HTTP 规范要求的 zlib
 > 包装），PotPlayer 解不开；而 AngelScript 既没有解压能力，也没法把解压出来的字节重新
-> 拼成字符串。所以弹幕服务器干的其实主要是"解压 + 转格式"这件事，短期绕不过去。
+> 拼成字符串。服务器在这里主要负责解压和转格式。
 
 ## 已知失效的功能
 
