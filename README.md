@@ -91,17 +91,27 @@ B 站 App 的「分享」复制出来的 `https://b23.tv/xxxxx` 短链可以直�
 - CDN 域名带 `.mcdn.bilivideo.cn`（B 站的 P2P 节点）时容易 503 或速度慢，
   插件会自动改用 `backupUrl` 里的普通节点。
 
+## 弹幕与字幕
+
+**不再需要任何第三方服务器。**
+
+- **弹幕**：插件直接取 `https://comment.bilibili.com/<cid>.xml`，自己转成 ASS 交给
+  PotPlayer 当字幕渲染（滚动弹幕用 `\move` 分轨道排列，顶部/底部弹幕用 `\pos` 固定）。
+  原来那个弹幕服务器 `subtitle.chen310.repl.co` 已随 `repl.co` 域名下线，现在用不上了。
+- **字幕**：直接用 B 站自己的字幕地址（`//aisubtitle.hdslb.com/...`）。这也是 issue
+  [#157](https://github.com/chen310/BilibiliPotPlayer/issues/157) 里作者确认过的 ——
+  可以直接把 JSON 格式的字幕 url 交给 PotPlayer，也可以用 `fileContent` 直接塞文本。
+
+想改回自建服务器的话，`Bilibili_Config.json` 里填 `danmaku.server` 即可，插件会优先走服务器。
+
+> 弹幕渲染依赖 PotPlayer 支持 `fileContent` / JSON 字幕，这个能力大约 2025 年初之后的版本才有。
+
 ## 已知失效的功能
 
-以下功能依赖 B 站已经下线的接口或服务，无法通过改插件恢复：
+以下功能依赖 B 站已经下线的接口，无法通过改插件恢复：
 
 - **音频区（`www.bilibili.com/audio/au...`、`am...`）**：B 站已下线音频区，接口固定返回
   `4511001 音频未找到或已下架`。
-- **弹幕与 AI 字幕**：插件通过一个第三方弹幕服务器把弹幕转成字幕文件，原来内置的
-  `https://subtitle.chen310.repl.co` 已经随 `repl.co` 域名一起下线（DNS 已无法解析），
-  所以配置文件里默认关闭了弹幕。有需要可以自己部署
-  [danmaku-server](https://github.com/chen310/danmaku-server) 并把地址填到
-  `Bilibili_Config.json` 的 `danmaku.server`，再打开 `danmaku.enable`。
 
 ## 更新记录
 
@@ -120,3 +130,7 @@ B 站 App 的「分享」复制出来的 `https://b23.tv/xxxxx` 短链可以直�
   `*.edge.mountaintoys.cn` 上（实测 140 个视频里占 122 次），这类视频以前必定 403。
   `preferCdn()` 现在也会避开未注册域名。
 - 支持 `b23.tv` 分享短链。
+- 直播优先 HLS 而不是 FLV：HLS 时间轴连续，PotPlayer 断线重连后不会出现声音重复/回声。
+- 弹幕和字幕不再依赖第三方服务器（原来内置的 `subtitle.chen310.repl.co` 已下线）：
+  弹幕直接由 `comment.bilibili.com/<cid>.xml` 转 ASS，字幕直接用 B 站自己的 JSON 地址。
+- 未读到 cookie 时在控制台给出明确提示。

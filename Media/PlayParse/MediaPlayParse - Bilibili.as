@@ -558,11 +558,21 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 				ispgc = true;
 			}
 			MetaData["webUrl"] = makeWebUrl(webUrl);
-			if (ConfigData.danmakuEnable && !ConfigData.danmakuUrl.empty()) {
+			if (ConfigData.danmakuEnable) {
 				dictionary dic;
 				dic["name"] = "【弹幕】" + title;
-				dic["url"] = ConfigData.danmakuUrl + cid;
-				subtitle.insertLast(dic);
+				if (!ConfigData.danmakuUrl.empty()) {
+					// 配置了自己的弹幕服务器就还走服务器
+					dic["url"] = ConfigData.danmakuUrl + cid;
+					subtitle.insertLast(dic);
+				} else {
+					// 否则直接取 B 站弹幕 XML 自己转 ASS，不需要任何外部服务
+					string ass = buildDanmakuAss(cid);
+					if (!ass.empty()) {
+						dic["fileContent"] = ass;
+						subtitle.insertLast(dic);
+					}
+				}
 			}
 		} else {
 			return url;
@@ -580,18 +590,35 @@ string Video(string bvid, const string &in path, dictionary &MetaData, array<dic
 	if (reader.parse(res, root) && root.isObject()) {
 		if (root["code"].asInt() == 0) {
 			JsonValue data = root["data"];
-			if (ConfigData.danmakuEnable && !ConfigData.subtitleUrl.empty()) {
+			if (ConfigData.danmakuEnable) {
 				JsonValue subs;
 				subs = root["data"]["subtitle"]["subtitles"];
 				if (subs.isArray()) {
 					for (int i = 0; i < subs.size(); i++) {
 						JsonValue sub = subs[i];
+						string subUrl = sub["subtitle_url"].asString();
+						if (subUrl.empty()) {
+							continue;
+						}
 						dictionary dic;
 						dic["name"] = "【字幕】" + sub["lan_doc"].asString();
-						if (sub["subtitle_url"].asString().find("http") == 0) {
-							dic["url"] = ConfigData.subtitleUrl + sub["subtitle_url"].asString();
+						if (!ConfigData.subtitleUrl.empty()) {
+							// 配置了自己的字幕服务器就还走服务器
+							if (subUrl.find("http") == 0) {
+								dic["url"] = ConfigData.subtitleUrl + subUrl;
+							} else {
+								dic["url"] = ConfigData.subtitleUrl + "http:" + subUrl;
+							}
 						} else {
-							dic["url"] = ConfigData.subtitleUrl + "http:" + sub["subtitle_url"].asString();
+							// 否则直接用 B 站自己的字幕 JSON（形如 //aisubtitle.hdslb.com/...），
+							// 新版 PotPlayer 能直接认这个格式
+							if (subUrl.find("//") == 0) {
+								dic["url"] = "https:" + subUrl;
+							} else if (subUrl.find("http") == 0) {
+								dic["url"] = subUrl;
+							} else {
+								dic["url"] = "https://" + subUrl;
+							}
 						}
 						subtitle.insertLast(dic);
 					}
@@ -913,6 +940,211 @@ string parseBVId(string url) {
 
 string parseAVId(string url) {
 	return HostRegExpParse(url, "av([0-9]+)");
+}
+
+string pad2(int v) {
+	if (v < 10) {
+		return "0" + v;
+	}
+	return "" + v;
+}
+
+string hex2(int v) {
+	string digits = "0123456789ABCDEF";
+	return digits.substr((v >> 4) & 0xF, 1) + digits.substr(v & 0xF, 1);
+}
+
+// ASS 的时间格式 H:MM:SS.cc
+string assTime(int ms) {
+	if (ms < 0) {
+		ms = 0;
+	}
+	int cs = ms / 10;
+	int s = cs / 100;
+	cs = cs % 100;
+	int m = s / 60;
+	s = s % 60;
+	int h = m / 60;
+	m = m % 60;
+	return "" + h + ":" + pad2(m) + ":" + pad2(s) + "." + pad2(cs);
+}
+
+// 弹幕里的时间形如 0.60100，parseFloat 不一定有，自己拆
+float parseSeconds(string s) {
+	array<string> parts = s.split(".");
+	int whole = parseInt(parts[0]);
+	int frac = 0;
+	if (parts.length() > 1) {
+		string f = parts[1];
+		if (f.length() > 3) {
+			f = f.substr(0, 3);
+		}
+		while (f.length() < 3) {
+			f += "0";
+		}
+		frac = parseInt(f);
+	}
+	return whole + frac / 1000.0;
+}
+
+// 把 B 站的弹幕 XML 转成 ASS 文本，交给 PotPlayer 当字幕渲染。
+// 这样就不需要任何第三方弹幕服务器了（原来那个 subtitle.chen310.repl.co 已经下线）。
+string buildDanmakuAss(string cid) {
+	string xml = post("https://comment.bilibili.com/" + cid + ".xml");
+	if (xml.empty()) {
+		log("弹幕拉取失败", cid);
+		return "";
+	}
+	// 取回来可能是压缩过的
+	if (xml.find("<i>") < 0 && xml.find("<?xml") < 0) {
+		string inflated = HostDecompress(xml);
+		if (inflated.find("<i>") >= 0 || inflated.find("<?xml") >= 0) {
+			xml = inflated;
+		}
+	}
+	if (xml.find("<d p=\"") < 0) {
+		log("弹幕 XML 无法识别", cid);
+		return "";
+	}
+
+	const uint maxDanmaku = 4000;   // 太长的视频别把字符串撑爆
+	int fontSize = int(ConfigData.danmakuFontSize);
+	if (fontSize < 12) {
+		fontSize = 12;
+	}
+	int playResX = 1920;
+	int playResY = 1080;
+	int laneHeight = int(fontSize * 1.4);
+	if (laneHeight < 1) {
+		laneHeight = 1;
+	}
+	int laneCount = int(playResY * ConfigData.danmakuDisplayArea / laneHeight);
+	if (laneCount < 1) {
+		laneCount = 1;
+	}
+	int topOffset = int(playResY * (1.0 - ConfigData.danmakuDisplayArea) / 2.0);
+	float stay = ConfigData.danmakuStayTime;
+	if (stay < 3.0) {
+		stay = 3.0;
+	}
+	int alpha = int((1.0 - ConfigData.danmakuOpacity) * 255.0);
+	if (alpha < 0) {
+		alpha = 0;
+	}
+	if (alpha > 255) {
+		alpha = 255;
+	}
+	string alphaHex = hex2(alpha);
+
+	string ass = "[Script Info]\r\n";
+	ass += "ScriptType: v4.00+\r\n";
+	ass += "PlayResX: " + playResX + "\r\n";
+	ass += "PlayResY: " + playResY + "\r\n";
+	ass += "WrapStyle: 2\r\n";
+	ass += "ScaledBorderAndShadow: yes\r\n\r\n";
+	ass += "[V4+ Styles]\r\n";
+	ass += "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n";
+	ass += "Style: DM," + ConfigData.danmakuFont + "," + fontSize
+		+ ",&H" + alphaHex + "FFFFFF,&H" + alphaHex + "FFFFFF,&H" + alphaHex + "000000,&H" + alphaHex + "000000"
+		+ ",0,0,0,0,100,100,0,0,1,2,1,7,0,0,0,1\r\n\r\n";
+	ass += "[Events]\r\n";
+	ass += "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n";
+
+	array<int> laneFree;
+	for (int l = 0; l < laneCount; l++) {
+		laneFree.insertLast(0);
+	}
+
+	uint count = 0;
+	array<string> items = xml.split("</d>");
+	for (uint i = 0; i < items.length(); i++) {
+		string item = items[i];
+		int at = item.find("<d p=\"");
+		if (at < 0) {
+			continue;
+		}
+		item = item.substr(at + 6);
+		int qend = item.find("\"");
+		if (qend < 0) {
+			continue;
+		}
+		string p = item.substr(0, qend);
+		string text = item.substr(qend + 2);
+		if (text.empty()) {
+			continue;
+		}
+		array<string> f = p.split(",");
+		if (f.length() < 4) {
+			continue;
+		}
+		float t = parseSeconds(f[0]);
+		int mode = parseInt(f[1]);
+		int color = parseInt(f[3]);
+		if (mode == 7 || mode == 8) {
+			continue;   // 高级弹幕，格式太自由，跳过
+		}
+
+		// 文本要清洗：XML 实体还原，花括号会破坏 ASS 的覆盖代码
+		text.replace("&lt;", "<");
+		text.replace("&gt;", ">");
+		text.replace("&quot;", "\"");
+		text.replace("&amp;", "&");
+		text.replace("{", "(");
+		text.replace("}", ")");
+		text.replace("\r", "");
+		text.replace("\n", " ");
+		if (text.empty()) {
+			continue;
+		}
+
+		int startMs = int(t * 1000.0);
+		string colorTag = "{\\alpha&H" + alphaHex + "&\\c&H"
+			+ hex2(color & 0xFF) + hex2((color >> 8) & 0xFF) + hex2((color >> 16) & 0xFF) + "&}";
+
+		string line;
+		if (mode == 4 || mode == 5) {
+			// 底部 / 顶部固定弹幕
+			int durMs = int(stay * 1000.0);
+			int y = (mode == 5) ? (topOffset + laneHeight) : (playResY - topOffset - laneHeight);
+			line = "Dialogue: 0," + assTime(startMs) + "," + assTime(startMs + durMs)
+				+ ",DM,,0,0,0,," + colorTag + "{\\an8\\pos(" + (playResX / 2) + "," + y + ")}" + text;
+		} else {
+			// 滚动弹幕：从右往左，按轨道分配避免重叠
+			int lane = -1;
+			int best = 0;
+			for (int l = 0; l < laneCount; l++) {
+				if (laneFree[l] <= startMs) {
+					lane = l;
+					break;
+				}
+				if (laneFree[l] < laneFree[best]) {
+					best = l;
+				}
+			}
+			if (lane < 0) {
+				lane = best;
+			}
+			laneFree[lane] = startMs + int(stay * 450.0);   // 前一条滚出一段距离再放新的
+			int y = topOffset + laneHeight * lane + laneHeight / 2;
+			// 宽度按字节数粗估，宁可估大一点（滚出去更早，不会残留）
+			int w = int(text.length() * fontSize * 0.6);
+			int durMs = int(stay * 1000.0);
+			line = "Dialogue: 0," + assTime(startMs) + "," + assTime(startMs + durMs)
+				+ ",DM,,0,0,0,," + colorTag + "{\\move(" + playResX + "," + y
+				+ "," + (0 - w) + "," + y + ")}" + text;
+		}
+		ass += line + "\r\n";
+		count += 1;
+		if (count >= maxDanmaku) {
+			log("弹幕条数超过上限，已截断", count);
+			break;
+		}
+	}
+	log("弹幕条数", count);
+	if (count == 0) {
+		return "";
+	}
+	return ass;
 }
 
 // 挑一个能用的 CDN 地址：

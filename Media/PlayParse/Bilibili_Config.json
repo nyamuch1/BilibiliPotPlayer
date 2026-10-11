@@ -4,9 +4,10 @@
 	"maxliveroom": 200,
 	"danmaku": {
 		// 控制是否接收弹幕。按 Alt+H 可显示/隐藏弹幕
-		// 默认关闭：原来内置的弹幕服务器 https://subtitle.chen310.repl.co 已经下线
-		// （repl.co 域名已停止解析）。需要弹幕请自建 danmaku-server 并填写下面的 server
-		"enable": false,
+		// 不需要弹幕服务器：留空即可，插件会直接取 B 站的弹幕 XML 自己转成 ASS，
+		// 字幕也直接用 B 站自己的 JSON 地址。
+		// 只有想走自建服务器时才填 server
+		"enable": true,
 		"server": "",
 		// 字体
 		"font": "微软雅黑",
